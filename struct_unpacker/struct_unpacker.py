@@ -1,0 +1,151 @@
+import struct
+import csv
+
+# === User Configuration ===
+STRUCT_FORMAT = "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30
+INPUT_FILE = 'eps_946971884.bin'
+OUTPUT_FILE = 'output.csv'
+DATA_TYPE = 'eps'
+# ===========================
+
+FIELDS = {
+    "adcs" : ["MODE", 
+              "GYRO_X", 
+              "GYRO_Y", 
+              "GYRO_Z", 
+              "MAG_X",
+              "MAG_Y",
+              "MAG_Z",
+              "SUN_STATUS", 
+              "SUN_VEC_X",
+              "SUN_VEC_Y",
+              "SUN_VEC_Z",
+              "LIGHT_SENSOR_XM",
+              "LIGHT_SENSOR_XP",
+              "LIGHT_SENSOR_YM",
+              "LIGHT_SENSOR_YP",
+              "LIGHT_SENSOR_ZM",
+              "XP_COIL_STATUS",
+              "XM_COIL_STATUS",
+              "YP_COIL_STATUS",
+              "YM_COIL_STATUS",
+              "ZP_COIL_STATUS",
+              "ZM_COIL_STATUS",
+              "ATTITUDE_QW",
+              "ATTITUDE_QX",
+              "ATTITUDE_QY",
+              "ATTITUDE_QZ"],
+    "cmd_logs" : ["TIME", 
+                  "CMD_ID", 
+                  "STATUS"],
+    "cdh" : ["TIME", 
+             "SC_STATE", 
+             "SD_USAGE", 
+             "CURRENT_RAM_USAGE",
+             "REBOOT_COUNT",
+             "WATCHDOG_TIMER",
+             "HAL_BITFLAGS",
+             "DETUMBLING_ERROR_FLAG"],
+    "comms" : ["RSSI"],
+    "eps" : ["TIME",
+        "EPS_POWER_FLAG",
+        "MAINBOARD_TEMPERATURE",
+        "MAINBOARD_VOLTAGE",
+        "MAINBOARD_CURRENT",
+        "BATTERY_PACK_TEMPERATURE",
+        "BATTERY_PACK_REPORTED_SOC",
+        "BATTERY_PACK_REPORTED_CAPACITY",
+        "BATTERY_PACK_CURRENT",
+        "BATTERY_PACK_VOLTAGE",
+        "BATTERY_PACK_MIDPOINT_VOLTAGE",
+        "BATTERY_PACK_TTE",
+        "BATTERY_PACK_TTF",
+        "XP_COIL_VOLTAGE",
+        "XP_COIL_CURRENT",
+        "XM_COIL_VOLTAGE",
+        "XM_COIL_CURRENT",
+        "YP_COIL_VOLTAGE",
+        "YP_COIL_CURRENT",
+        "YM_COIL_VOLTAGE",
+        "YM_COIL_CURRENT",
+        "ZP_COIL_VOLTAGE",
+        "ZP_COIL_CURRENT",
+        "ZM_COIL_VOLTAGE",
+        "ZM_COIL_CURRENT",
+        "JETSON_INPUT_VOLTAGE",
+        "JETSON_INPUT_CURRENT",
+        "RF_LDO_OUTPUT_VOLTAGE",
+        "RF_LDO_OUTPUT_CURRENT",
+        "GPS_VOLTAGE",
+        "GPS_CURRENT",
+        "XP_SOLAR_CHARGE_VOLTAGE",
+        "XP_SOLAR_CHARGE_CURRENT",
+        "XM_SOLAR_CHARGE_VOLTAGE",
+        "XM_SOLAR_CHARGE_CURRENT",
+        "YP_SOLAR_CHARGE_VOLTAGE",
+        "YP_SOLAR_CHARGE_CURRENT",
+        "YM_SOLAR_CHARGE_VOLTAGE",
+        "YM_SOLAR_CHARGE_CURRENT",
+        "ZP_SOLAR_CHARGE_VOLTAGE",
+        "ZP_SOLAR_CHARGE_CURRENT",
+        "ZM_SOLAR_CHARGE_VOLTAGE",
+        "ZM_SOLAR_CHARGE_CURRENT",],
+    "gps" : ["TIME",
+            "GPS_MESSAGE_ID",
+            "GPS_FIX_MODE",
+            "GPS_NUMBER_OF_SV",
+            "GPS_GNSS_WEEK",
+            "GPS_GNSS_TOW",
+            "GPS_LATITUDE",
+            "GPS_LONGITUDE",
+            "GPS_ELLIPSOID_ALT",
+            "GPS_MEAN_SEA_LVL_ALT",
+            "GPS_GDOP",
+            "GPS_PDOP",
+            "GPS_HDOP",
+            "GPS_VDOP",
+            "GPS_TDOP",
+            "GPS_ECEF_X",
+            "GPS_ECEF_Y",
+            "GPS_ECEF_Z",
+            "GPS_ECEF_VX",
+            "GPS_ECEF_VY",
+            "GPS_ECEF_VZ"] 
+}
+
+
+def read_and_unpack_bin_file(struct_format, input_file):
+    record_size = struct.calcsize(struct_format)
+    data = []
+
+    with open(input_file, 'rb') as f:
+        while True:
+            bytes_read = f.read(record_size)
+            if len(bytes_read) < record_size:
+                break  # End of file or incomplete record
+            record = struct.unpack(struct_format, bytes_read)
+            data.append(record)
+
+    return data
+
+def write_to_csv(data, field_names, output_file):
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(field_names)
+        writer.writerows(data)
+
+def main():
+    if DATA_TYPE not in FIELDS:
+        raise ValueError(f"Unknown data type '{DATA_TYPE}'. Available types: {list(FIELDS.keys())}")
+
+    field_names = FIELDS[DATA_TYPE]
+    data = read_and_unpack_bin_file(STRUCT_FORMAT, INPUT_FILE)
+
+    if any(len(record) != len(field_names) for record in data):
+        raise ValueError("Mismatch between struct format and number of field names.")
+
+    write_to_csv(data, field_names, OUTPUT_FILE)
+    print(f"Successfully wrote {len(data)} records to '{OUTPUT_FILE}' with headers for '{DATA_TYPE}'.")
+
+if __name__ == '__main__':
+    main()
