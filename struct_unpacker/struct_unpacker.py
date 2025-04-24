@@ -1,10 +1,9 @@
 import struct
 import csv
+import argparse
 
 # === User Configuration ===
-STRUCT_FORMAT = "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30
-INPUT_FILE = 'eps_946971884.bin'
-OUTPUT_FILE = 'output.csv'
+STRUCT_FORMAT = "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30 + "b"
 DATA_TYPE = 'eps'
 # ===========================
 
@@ -89,7 +88,8 @@ FIELDS = {
         "ZP_SOLAR_CHARGE_VOLTAGE",
         "ZP_SOLAR_CHARGE_CURRENT",
         "ZM_SOLAR_CHARGE_VOLTAGE",
-        "ZM_SOLAR_CHARGE_CURRENT",],
+        "ZM_SOLAR_CHARGE_CURRENT",
+        "BATTERY_HEATERS_ENABLED"],
     "gps" : ["TIME",
             "GPS_MESSAGE_ID",
             "GPS_FIX_MODE",
@@ -135,6 +135,21 @@ def write_to_csv(data, field_names, output_file):
         writer.writerows(data)
 
 def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "-f",
+        "--file",
+        type=str,
+        default="eps_946684806.bin",
+        help="Input file",
+        required=False,
+    )
+    args = parser.parse_args()
+
+    INPUT_FILE = args.file
+    OUTPUT_FILE = (INPUT_FILE).replace('.bin', '.csv')
+    print(f"Processing inout {INPUT_FILE}...")
     if DATA_TYPE not in FIELDS:
         raise ValueError(f"Unknown data type '{DATA_TYPE}'. Available types: {list(FIELDS.keys())}")
 
