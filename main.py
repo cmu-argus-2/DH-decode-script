@@ -1,39 +1,58 @@
 import struct
 import csv
 import argparse
+import os
 
 # === User Configuration ===
-STRUCT_FORMAT = "<" + "L" + "B" * 102
-DATA_TYPE = 'hal'
+
+STRUCT_FORMATS = {
+    "adcs": "<" + "LB" + 6 * "f" + "B" + 3 * "f" + 9 * "H" + 6 * "B" + 4 * "f",
+    "cdh": "<" + "LbLbbbbb",
+    "cmd_logs": "<" + "LBB",
+    "comms": "<" + "Lf",
+    "eps": "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30 + "b",
+    "gps": "<" + "LBBBHLllllHHHHHllllll",
+    "hal": "<" + "L" + "b" * 43,
+    "eps_warning": "<" + "L" + "b" * 10
+}
+
+
 # ===========================
 
 FIELDS = {
-    "adcs" : ["MODE", 
-              "GYRO_X", 
-              "GYRO_Y", 
-              "GYRO_Z", 
-              "MAG_X",
-              "MAG_Y",
-              "MAG_Z",
-              "SUN_STATUS", 
-              "SUN_VEC_X",
-              "SUN_VEC_Y",
-              "SUN_VEC_Z",
-              "LIGHT_SENSOR_XM",
-              "LIGHT_SENSOR_XP",
-              "LIGHT_SENSOR_YM",
-              "LIGHT_SENSOR_YP",
-              "LIGHT_SENSOR_ZM",
-              "XP_COIL_STATUS",
-              "XM_COIL_STATUS",
-              "YP_COIL_STATUS",
-              "YM_COIL_STATUS",
-              "ZP_COIL_STATUS",
-              "ZM_COIL_STATUS",
-              "ATTITUDE_QW",
-              "ATTITUDE_QX",
-              "ATTITUDE_QY",
-              "ATTITUDE_QZ"],
+    "adcs" : [
+        "TIME_ADCS",
+        "MODE",
+        "GYRO_X",
+        "GYRO_Y",
+        "GYRO_Z",
+        "MAG_X",
+        "MAG_Y",
+        "MAG_Z",
+        "SUN_STATUS",
+        "SUN_VEC_X",
+        "SUN_VEC_Y",
+        "SUN_VEC_Z",
+        "LIGHT_SENSOR_XP",
+        "LIGHT_SENSOR_XM",
+        "LIGHT_SENSOR_YP",
+        "LIGHT_SENSOR_YM",
+        "LIGHT_SENSOR_ZP1",
+        "LIGHT_SENSOR_ZP2",
+        "LIGHT_SENSOR_ZP3",
+        "LIGHT_SENSOR_ZP4",
+        "LIGHT_SENSOR_ZM",
+        "XP_COIL_STATUS",
+        "XM_COIL_STATUS",
+        "YP_COIL_STATUS",
+        "YM_COIL_STATUS",
+        "ZP_COIL_STATUS",
+        "ZM_COIL_STATUS",
+        "COARSE_ATTITUDE_QW",
+        "COARSE_ATTITUDE_QX",
+        "COARSE_ATTITUDE_QY",
+        "COARSE_ATTITUDE_QZ",
+    ],
     "cmd_logs" : ["TIME", 
                   "CMD_ID", 
                   "STATUS"],
@@ -45,7 +64,7 @@ FIELDS = {
              "WATCHDOG_TIMER",
              "HAL_BITFLAGS",
              "DETUMBLING_ERROR_FLAG"],
-    "comms" : ["RSSI"],
+    "comms" : ["TIME", "RSSI"],
     "eps" : ["TIME",
         "EPS_POWER_FLAG",
         "MAINBOARD_TEMPERATURE",
@@ -90,6 +109,19 @@ FIELDS = {
         "ZM_SOLAR_CHARGE_VOLTAGE",
         "ZM_SOLAR_CHARGE_CURRENT",
         "BATTERY_HEATERS_ENABLED"],
+    "eps_warning": [
+        "TIME_EPS_WARNING",
+        "MAINBOARD_POWER_ALERT",
+        "PERIPH_POWER_ALERT",
+        "RADIO_POWER_ALERT",
+        "JETSON_POWER_ALERT",
+        "XP_COIL_POWER_ALERT",
+        "XM_COIL_POWER_ALERT",
+        "YP_COIL_POWER_ALERT",
+        "YM_COIL_POWER_ALERT",
+        "ZP_COIL_POWER_ALERT",
+        "ZM_COIL_POWER_ALERT"
+    ],
     "gps" : ["TIME",
             "GPS_MESSAGE_ID",
             "GPS_FIX_MODE",
@@ -225,45 +257,74 @@ def read_and_unpack_bin_file(struct_format, input_file):
         while True:
             bytes_read = f.read(record_size)
             if len(bytes_read) < record_size:
-                break  # End of file or incomplete record
-            record = struct.unpack(struct_format, bytes_read)
-            data.append(record)
+                break
+            try:
+                record = struct.unpack(struct_format, bytes_read)
+                data.append(record)
+            except struct.error as e:
+                print(f"Unpacking error in file {input_file}: {e}")
+                break
 
     return data
 
 def write_to_csv(data, field_names, output_file):
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(field_names)
         writer.writerows(data)
 
-def main():
-    parser = argparse.ArgumentParser()
+def process_all_bin_files(input_root, output_root):
+    for root, dirs, files in os.walk(input_root):
+        relative_path = os.path.relpath(root, input_root)
+        subsystem = os.path.basename(root)
 
+        if subsystem not in STRUCT_FORMATS:
+            continue  # Skip folders not matching known subsystems
+
+        struct_format = STRUCT_FORMATS[subsystem]
+        field_names = FIELDS[subsystem]
+
+        for file in files:
+            if file.endswith('.bin'):
+                bin_path = os.path.join(root, file)
+
+                # Mirror folder structure under output_root
+                output_folder = os.path.join(output_root, relative_path)
+                csv_filename = file.replace('.bin', '.csv')
+                csv_path = os.path.join(output_folder, csv_filename)
+
+                print(f"Processing: {bin_path}")
+                data = read_and_unpack_bin_file(struct_format, bin_path)
+
+                if any(len(record) != len(field_names) for record in data):
+                    print(f"❌ Field count mismatch in file {bin_path}")
+                    continue
+
+                write_to_csv(data, field_names, csv_path)
+                print(f"✅ Converted to {csv_path}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Convert CubeSat binary logs to CSV.")
     parser.add_argument(
-        "-f",
-        "--file",
+        "-i", "--input",
         type=str,
-        default="HAL_MONITOR_947100692.bin",
-        help="Input file",
-        required=False,
+        required=True,
+        help="Path to top-level input log directory containing subsystem folders"
+    )
+    parser.add_argument(
+        "-o", "--output",
+        type=str,
+        required=True,
+        help="Path to output directory where CSV files should be written"
     )
     args = parser.parse_args()
 
-    INPUT_FILE = args.file
-    OUTPUT_FILE = (INPUT_FILE).replace('.bin', '.csv')
-    print(f"Processing inout {INPUT_FILE}...")
-    if DATA_TYPE not in FIELDS:
-        raise ValueError(f"Unknown data type '{DATA_TYPE}'. Available types: {list(FIELDS.keys())}")
+    if not os.path.isdir(args.input):
+        print(f"❌ Input path is not a directory: {args.input}")
+        return
 
-    field_names = FIELDS[DATA_TYPE]
-    data = read_and_unpack_bin_file(STRUCT_FORMAT, INPUT_FILE)
-
-    if any(len(record) != len(field_names) for record in data):
-        raise ValueError("Mismatch between struct format and number of field names.")
-
-    write_to_csv(data, field_names, OUTPUT_FILE)
-    print(f"Successfully wrote {len(data)} records to '{OUTPUT_FILE}' with headers for '{DATA_TYPE}'.")
+    process_all_bin_files(args.input, args.output)
 
 if __name__ == '__main__':
     main()
