@@ -12,7 +12,7 @@ STRUCT_FORMATS = {
     "comms": "<" + "Lf",
     "eps": "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30 + "b",
     "gps": "<" + "LBBBHLllllHHHHHllllll",
-    "hal": "<" + "L" + "b" * 43,
+    "hal": "<" + "L" + "B" * 102,
     "eps_warning": "<" + "L" + "b" * 10
 }
 
