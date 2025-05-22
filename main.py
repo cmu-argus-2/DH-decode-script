@@ -2,6 +2,7 @@ import struct
 import csv
 import argparse
 import os
+from collections import defaultdict
 
 # === User Configuration ===
 
@@ -10,14 +11,11 @@ STRUCT_FORMATS = {
     "cdh": "<" + "LbLbbbbb",
     "cmd_logs": "<" + "LBB",
     "comms": "<" + "Lf",
-    "eps": "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30 + "b",
+    "eps": "<" + "Lbhhhhb" + "h" * 4 + "L" * 2 + "h" * 30 + 'b',
     "gps": "<" + "LBBBHLllllHHHHHllllll",
     "hal": "<" + "L" + "B" * 102,
     "eps_warning": "<" + "L" + "b" * 10
 }
-
-
-# ===========================
 
 FIELDS = {
     "adcs" : [
@@ -248,11 +246,12 @@ FIELDS = {
             "NEOPIXEL_DEAD"]
 }
 
+TIMESTAMP_FIELDS = {key: fields[0] for key, fields in FIELDS.items() if fields}
+
 
 def read_and_unpack_bin_file(struct_format, input_file):
     record_size = struct.calcsize(struct_format)
     data = []
-
     with open(input_file, 'rb') as f:
         while True:
             bytes_read = f.read(record_size)
@@ -264,7 +263,6 @@ def read_and_unpack_bin_file(struct_format, input_file):
             except struct.error as e:
                 print(f"Unpacking error in file {input_file}: {e}")
                 break
-
     return data
 
 def write_to_csv(data, field_names, output_file):
@@ -274,22 +272,38 @@ def write_to_csv(data, field_names, output_file):
         writer.writerow(field_names)
         writer.writerows(data)
 
+def analyze_csv_file(csv_path, timestamp_field):
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        timestamps = [float(row[timestamp_field]) for row in reader if row[timestamp_field]]
+    if not timestamps:
+        return None
+    timestamps.sort()
+    n_samples = len(timestamps)
+    delta_time = timestamps[-1] - timestamps[0]
+    frequency = (n_samples - 1) / delta_time if delta_time > 0 else float('inf')
+    return (os.path.basename(csv_path), n_samples, delta_time, frequency)
+
 def process_all_bin_files(input_root, output_root):
+    subsystem_data = defaultdict(list)
+    bin_sizes = defaultdict(int)
+
     for root, dirs, files in os.walk(input_root):
         relative_path = os.path.relpath(root, input_root)
         subsystem = os.path.basename(root)
 
         if subsystem not in STRUCT_FORMATS:
-            continue  # Skip folders not matching known subsystems
+            continue
 
         struct_format = STRUCT_FORMATS[subsystem]
         field_names = FIELDS[subsystem]
+        timestamp_field = TIMESTAMP_FIELDS.get(subsystem, field_names[0])
 
         for file in files:
             if file.endswith('.bin'):
                 bin_path = os.path.join(root, file)
+                bin_sizes[subsystem] += os.path.getsize(bin_path)
 
-                # Mirror folder structure under output_root
                 output_folder = os.path.join(output_root, relative_path)
                 csv_filename = file.replace('.bin', '.csv')
                 csv_path = os.path.join(output_folder, csv_filename)
@@ -304,8 +318,22 @@ def process_all_bin_files(input_root, output_root):
                 write_to_csv(data, field_names, csv_path)
                 print(f"✅ Converted to {csv_path}")
 
+                result = analyze_csv_file(csv_path, timestamp_field)
+                if result:
+                    bin_size = os.path.getsize(bin_path)
+                    subsystem_data[subsystem].append(result + (bin_size,))
+
+    for subsystem in sorted(subsystem_data):
+        print(f"\n=== Subsystem: {subsystem} ===")
+        print(f"Total binary size: {bin_sizes[subsystem]} bytes")
+        print(f"{'File':<30} {'Samples':>10} {'Time Span (s)':>15} {'Est. Freq (Hz)':>15} {'Bin Size (B)':>15}")
+        print("-" * 95)
+        for entry in sorted(subsystem_data[subsystem], key=lambda x: x[0]):
+            filename, n_samples, delta_time, frequency, bin_size = entry
+            print(f"{filename:<30} {n_samples:>10} {delta_time:>15.3f} {frequency:>15.3f} {bin_size:>15}")
+
 def main():
-    parser = argparse.ArgumentParser(description="Convert CubeSat binary logs to CSV.")
+    parser = argparse.ArgumentParser(description="Convert and analyze CubeSat binary logs.")
     parser.add_argument(
         "-i", "--input",
         type=str,
